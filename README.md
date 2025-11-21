@@ -120,9 +120,7 @@ document.addEventListener("DOMContentLoaded", function() {
 <div class="page-mask">
 
 # 今日思考流  
-_持续更新我的 AI 观察与随想_
 
----
 
 ## 📅 2025-02-01
 <div class="gpt-bubble">
