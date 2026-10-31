@@ -1,0 +1,550 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>中心代谢三维图谱</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@600;700&display=swap">
+<style>
+/* Layout concept: the 3D network is the stage; a reading rail sits beside it (below on phones). Tabs decide which trunk is lit. */
+:root{
+  --bg:#F2F5F9; --surface:#FFFFFF; --stage:#E8EDF5; --fg:#141B2D; --muted:#566079; --line:#D3DAE6; --accent:#2B44B8;
+  --c-g:#D98A1F; --c-p:#1E8F6F; --c-t:#8A4FC7; --c-i:#2B44B8;
+  --k-atp:#D4B000; --k-nadh:#2F9BE6; --k-nadph:#DB2F8A; --k-fadh:#7DB82E; --k-co2:#7A8397;
+  --font-display:"Noto Serif SC","Songti SC","Source Han Serif SC",serif;
+  --font-body:"Noto Sans SC","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+  --font-mono:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0D1220; --surface:#151C2E; --stage:#090E1B; --fg:#E6EAF5; --muted:#96A0BA; --line:#28314A; --accent:#8196FF;
+    --c-g:#F2AE4A; --c-p:#4CCBA3; --c-t:#BC91F5; --c-i:#8196FF;
+    --k-atp:#F0D23C; --k-nadh:#5DB4F5; --k-nadph:#F25BA6; --k-fadh:#9ED453; --k-co2:#8A93A8;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0D1220; --surface:#151C2E; --stage:#090E1B; --fg:#E6EAF5; --muted:#96A0BA; --line:#28314A; --accent:#8196FF;
+  --c-g:#F2AE4A; --c-p:#4CCBA3; --c-t:#BC91F5; --c-i:#8196FF;
+  --k-atp:#F0D23C; --k-nadh:#5DB4F5; --k-nadph:#F25BA6; --k-fadh:#9ED453; --k-co2:#8A93A8;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--fg);
+  font-family:var(--font-body); font-size:15px; line-height:1.7;
+  padding-block:22px 48px;
+  padding-left:max(16px,env(safe-area-inset-left,0px));
+  padding-right:max(16px,env(safe-area-inset-right,0px));
+}
+.wrap{max-width:1180px;margin:0 auto}
+.eyebrow{margin:0 0 6px;font:600 11px/1.4 var(--font-mono);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+h1{margin:0;font:700 clamp(28px,5vw,40px)/1.2 var(--font-display);letter-spacing:.01em;text-wrap:balance}
+.lede{margin:10px 0 0;max-width:62ch;color:var(--muted)}
+h2{margin:0 0 8px;font:700 17px/1.4 var(--font-display);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+h2 small{font:400 12px var(--font-mono);color:var(--muted)}
+p{margin:0 0 10px}
+button{font-family:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.tabs{display:flex;gap:4px;overflow-x:auto;border-bottom:1px solid var(--line);margin:20px 0 14px;scrollbar-width:thin}
+.tab{flex:none;appearance:none;background:none;border:0;border-bottom:3px solid transparent;margin-bottom:-1px;padding:10px 12px;font:500 14px var(--font-body);color:var(--muted);cursor:pointer;display:flex;align-items:center;gap:7px}
+.tab[aria-selected="true"]{color:var(--fg);font-weight:700;border-bottom-color:var(--tc,var(--fg))}
+.dot{width:10px;height:10px;border-radius:50%;background:var(--dc,var(--fg));flex:none}
+
+.main{display:grid;grid-template-columns:minmax(0,1fr);gap:16px}
+@media (min-width:960px){
+  .main{grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);align-items:start;gap:24px}
+  .stage{position:sticky;top:12px;height:min(74vh,700px)!important}
+}
+.stage{position:relative;background:var(--stage);border:1px solid var(--line);border-radius:10px;overflow:hidden;height:clamp(360px,62vh,600px);touch-action:none}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#labels{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.lb{position:absolute;left:0;top:0;font:500 11px/1 var(--font-mono),var(--font-body);color:var(--fg);white-space:nowrap;will-change:transform;
+  text-shadow:0 0 3px var(--stage),0 0 3px var(--stage),0 0 7px var(--stage)}
+.lb.sel{font-weight:700;font-size:12.5px}
+.hint{position:absolute;left:10px;bottom:10px;font:400 11px var(--font-body);color:var(--muted);pointer-events:none}
+.ctl{position:absolute;right:10px;bottom:10px;display:flex;gap:6px}
+.tg{appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--fg);border-radius:6px;padding:5px 9px;font:500 12px var(--font-body);cursor:pointer}
+.tg[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+#nogl{position:absolute;inset:0;display:grid;place-items:center;padding:24px;text-align:center;color:var(--muted)}
+
+.rail{display:flex;flex-direction:column;gap:16px;min-width:0}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px 18px;min-width:0}
+.sec{border-top:1px solid var(--line);padding-top:14px;min-width:0}
+.nc-head{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-bottom:8px}
+.nc-head h2{margin:0}
+.tag{font:600 11px var(--font-mono);border:1px solid var(--line);border-radius:4px;padding:2px 6px;color:var(--muted)}
+.flow{list-style:none;margin:10px 0;padding:0;display:flex;flex-direction:column;gap:7px}
+.flow li{display:flex;flex-wrap:wrap;align-items:center;gap:6px;font-size:13.5px}
+.flow .ar{font-family:var(--font-mono);color:var(--muted);width:1.2em}
+.flow .en{color:var(--muted);font-size:12.5px}
+.chips{display:inline-flex;gap:5px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:5px;font:500 11.5px/1 var(--font-mono);padding:4px 7px;border:1px solid var(--line);border-radius:999px;background:var(--bg);white-space:nowrap}
+.chip i{width:8px;height:8px;border-radius:50%;background:var(--kc)}
+.chip.neg i{border-radius:2px}
+.lnk{appearance:none;border:0;background:none;padding:0;font:600 13.5px var(--font-body);color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.pill{border:1px solid var(--line);border-radius:999px;padding:4px 10px;text-decoration:none;color:var(--fg);background:var(--surface);font-weight:500;font-size:13px}
+.pill:hover{border-color:var(--accent)}
+.dye{margin:12px 0 0;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:13.5px}
+.dye b{display:block;font:600 11px var(--font-mono);letter-spacing:.08em;color:var(--muted);margin-bottom:2px}
+dl{margin:10px 0;display:grid;grid-template-columns:minmax(0,1fr);gap:2px}
+dt{font:600 12px var(--font-mono);letter-spacing:.04em;color:var(--muted);margin-top:8px}
+dd{margin:0;font-size:14px}
+.jump{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:10px}
+.jump>span{font:600 11px var(--font-mono);letter-spacing:.08em;color:var(--muted);margin-right:4px}
+
+.card label{display:block;font-size:13.5px;margin-bottom:8px}
+input[type=range]{width:100%;accent-color:var(--c-p);margin:4px 0 12px}
+.readouts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px}
+.readouts div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.readouts .v{font:600 22px/1.1 var(--font-mono);font-variant-numeric:tabular-nums}
+.readouts .k{font-size:11.5px;color:var(--muted);line-height:1.35}
+.small{font-size:12.5px;color:var(--muted)}
+.lg{display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0}
+.lg span{display:inline-flex;align-items:center;gap:6px;font-size:13px}
+@media (max-width:420px){.readouts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">Week 3 · Central metabolism</p>
+    <h1>三条代谢主干</h1>
+    <p class="lede">糖酵解供能量，磷酸戊糖途径供还原力和碳骨架，TCA 循环做氧化和中转。拖动旋转，点节点看展开讲解，再看它们如何接到靛蓝。</p>
+  </header>
+
+  <div class="tabs" role="tablist" aria-label="选择主干">
+    <button class="tab" role="tab" data-tab="a" aria-selected="true">全部</button>
+    <button class="tab" role="tab" data-tab="g" aria-selected="false" style="--tc:var(--c-g)"><span class="dot" style="--dc:var(--c-g)"></span>糖酵解</button>
+    <button class="tab" role="tab" data-tab="p" aria-selected="false" style="--tc:var(--c-p)"><span class="dot" style="--dc:var(--c-p)"></span>磷酸戊糖</button>
+    <button class="tab" role="tab" data-tab="t" aria-selected="false" style="--tc:var(--c-t)"><span class="dot" style="--dc:var(--c-t)"></span>TCA 循环</button>
+    <button class="tab" role="tab" data-tab="i" aria-selected="false" style="--tc:var(--c-i)"><span class="dot" style="--dc:var(--c-i)"></span>靛蓝路线</button>
+  </div>
+
+  <div class="main">
+    <div class="stage" id="stage">
+      <canvas id="cv" aria-label="代谢网络三维图，可拖动旋转"></canvas>
+      <div id="labels"></div>
+      <div id="nogl" hidden>此环境无法加载三维画面。右侧文字讲解仍可使用，建议在支持 WebGL 的浏览器中打开。</div>
+      <div class="hint">拖动旋转 · 滚轮或双指缩放 · 点击节点</div>
+      <div class="ctl">
+        <button type="button" class="tg" id="b-cof" aria-pressed="true">辅因子</button>
+        <button type="button" class="tg" id="b-rot" aria-pressed="true">自转</button>
+      </div>
+    </div>
+
+    <aside class="rail">
+      <section class="card" id="node-card" aria-live="polite"></section>
+      <section class="sec" id="pw-card"></section>
+      <section class="card" id="flux-card">
+        <h2>调一调：葡萄糖进入氧化支路的份额</h2>
+        <label for="ppp">每 100 个葡萄糖中，走 PPP 氧化支路的 G6P 数</label>
+        <input type="range" id="ppp" min="0" max="60" step="1" value="20">
+        <div class="readouts">
+          <div><span class="v" id="r-x">20</span><span class="k">氧化支路 G6P</span></div>
+          <div><span class="v" id="r-nadph">40</span><span class="k">NADPH 产出</span></div>
+          <div><span class="v" id="r-co2">20</span><span class="k">CO₂ 损失的碳</span></div>
+          <div><span class="v" id="r-gly">80</span><span class="k">直接走糖酵解</span></div>
+        </div>
+        <p id="flux-note" style="margin:0"></p>
+        <p class="small" style="margin:10px 0 0">示意：每个进入氧化支路的 G6P 产 2 NADPH 和 1 CO₂。未计 Icd、膜上转氢酶等其他 NADPH 来源，也未计非氧化支路回流后的再循环。画面里 PPP 与糖酵解各边的粗细和流速随滑块变化。</p>
+      </section>
+      <section class="sec" id="legend">
+        <h2>图例</h2>
+        <div class="lg">
+          <span><span class="dot" style="--dc:var(--c-g)"></span>糖酵解</span>
+          <span><span class="dot" style="--dc:var(--c-p)"></span>磷酸戊糖途径</span>
+          <span><span class="dot" style="--dc:var(--c-t)"></span>TCA 循环</span>
+          <span><span class="dot" style="--dc:var(--c-i)"></span>靛蓝前体路线</span>
+        </div>
+        <div class="lg">
+          <span class="chip" style="--kc:var(--k-atp)"><i></i>ATP</span>
+          <span class="chip" style="--kc:var(--k-nadh)"><i></i>NADH</span>
+          <span class="chip" style="--kc:var(--k-nadph)"><i></i>NADPH</span>
+          <span class="chip" style="--kc:var(--k-fadh)"><i></i>FADH₂</span>
+          <span class="chip" style="--kc:var(--k-co2)"><i></i>CO₂</span>
+        </div>
+        <p class="small">边旁的小圆球表示该步骤产出辅因子，小方块表示消耗。节点大小对应碳数。教学示意，实际通量随菌株与培养条件变化。</p>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+/* ---------- data ---------- */
+const mk=(id,s,n,pw,c,p,d,y)=>({id,s,n,pw,c,p,d,y:y||''});
+const N=[
+ mk('glc','葡萄糖','葡萄糖 Glucose','g',6,[-7,7,0],'起点。E. coli 经 PTS 转运进胞内，同时被磷酸化成 G6P，磷酸基团由 PEP 提供。','摄糖这一步就要消耗 1 个 PEP，是和莽草酸途径抢 PEP 的第一个竞争者。'),
+ mk('g6p','G6P','6-磷酸葡萄糖','g',6,[-7,5,0],'第一个分流点：向下经 Pgi 变成 F6P，进入糖酵解；向侧面经 Zwf 氧化，进入磷酸戊糖途径。','分到哪条路取决于两边酶的相对活性。调 zwf、pgi 的表达是调 NADPH 供给的常用手段。'),
+ mk('f6p','F6P','6-磷酸果糖','g',6,[-7,3,0],'经 PfkA 再磷酸化成 FBP，这一步耗 1 个 ATP，是糖酵解的主要调控点之一。','PPP 非氧化支路重排出的 F6P 在这里回流，重新汇入糖酵解。'),
+ mk('fbp','FBP','1,6-二磷酸果糖','g',6,[-7,1,0],'醛缩酶 Fba 把它切成两个三碳糖 GAP 和 DHAP，二者可由异构酶互变。','六碳变三碳的切点。从这里开始，每个葡萄糖对应两份下游分子。'),
+ mk('gap','GAP','3-磷酸甘油醛','g',3,[-7,-1,0],'进入能量回收段。经 4 步变成 PEP，途中产 1 个 NADH 和 1 个 ATP（每个 GAP）。','PPP 非氧化支路会产出 GAP，色氨酸合成的最后一步（TrpA）也会放出 GAP，它是几条线共用的接头。'),
+ mk('pep','PEP','磷酸烯醇式丙酮酸','g',3,[-7,-3,0],'高能磷酸中间体。Pyk 把它变成丙酮酸并产 1 个 ATP；它同时是 PTS 的磷酸供体和 DAHP 合酶的底物。','整张图上最拥挤的路口：摄糖、丙酮酸、莽草酸三方抢。常见对策是过表达 ppsA 把丙酮酸补回 PEP、削弱 pyk，或改用不依赖 PEP 的摄糖方式。'),
+ mk('pyr','丙酮酸','丙酮酸 Pyruvate','g',3,[-7,-5,0],'糖酵解终点。有氧下经丙酮酸脱氢酶复合体变成乙酰 CoA，放出 1 个 CO₂ 和 1 个 NADH。','TnaA 切色氨酸时也会放出丙酮酸，它可以回流到这里。'),
+ mk('accoa','乙酰CoA','乙酰辅酶 A','t',2,[-1,-4.6,1],'TCA 的入口燃料。与草酰乙酸缩合成柠檬酸，由柠檬酸合酶 GltA 催化。','类胡萝卜素的前体 IPP/DMAPP 在 E. coli 走 MEP 途径（丙酮酸 + GAP），在酵母走 MVA 途径（从乙酰 CoA 起步）。选底盘时这是一个差别。'),
+ mk('cit','柠檬酸','柠檬酸 Citrate','t',6,[0,0,0],'2 碳的乙酰 CoA 加 4 碳的草酰乙酸，缩合成 6 碳的柠檬酸，循环由此开始。'),
+ mk('icit','异柠檬酸','异柠檬酸 Isocitrate','t',6,[0,0,0],'由乌头酸酶（AcnAB）异构而来。Icd 氧化脱羧，放出第 1 个 CO₂。E. coli 的 Icd 用 NADP⁺，所以这里产的是 NADPH。','TCA 本身也是还原力来源之一。这里还是乙醛酸支路（AceA）的分岔点。'),
+ mk('akg','α-KG','α-酮戊二酸','t',5,[0,0,0],'再一次氧化脱羧：α-KG 脱氢酶复合体放出第 2 个 CO₂，产 NADH，生成琥珀酰 CoA。','α-KG 也是谷氨酸的前身。接上氨得到谷氨酸，再得到谷氨酰胺，后者是色氨酸合成的氮源。'),
+ mk('succoa','琥珀酰CoA','琥珀酰辅酶 A','t',4,[0,0,0],'硫酯键水解的能量被 SucCD 偶联，生成 1 个 ATP（底物水平磷酸化）。'),
+ mk('suc','琥珀酸','琥珀酸 Succinate','t',4,[0,0,0],'琥珀酸脱氢酶 Sdh 把它氧化成延胡索酸，电子交给 FAD 生成 FADH₂，直接送入呼吸链。'),
+ mk('fum','延胡索酸','延胡索酸 Fumarate','t',4,[0,0,0],'延胡索酸酶加一分子水，变成苹果酸。没有辅因子变化。'),
+ mk('mal','苹果酸','苹果酸 Malate','t',4,[0,0,0],'苹果酸脱氢酶 Mdh 把它氧化成草酰乙酸，产出循环里的最后一个 NADH。'),
+ mk('oaa','草酰乙酸','草酰乙酸 Oxaloacetate','t',4,[0,0,0],'循环的再生点，也是汇合点：与新的乙酰 CoA 缩合重新入环。PEP 经 Ppc 羧化可以补充它。','OAA 被抽走去合成天冬氨酸等氨基酸时需要 PEP 回补，这又消耗一份 PEP。'),
+ mk('p6g','6PG','6-磷酸葡萄糖酸','p',6,[-3.5,5,3.5],'G6P 经 Zwf 氧化成内酯，Pgl 水解后得到它。这一步产出第 1 个 NADPH。'),
+ mk('ru5p','Ru5P','5-磷酸核酮糖','p',5,[-0.5,5,6],'Gnd 氧化脱羧：放出 1 个 CO₂，产出第 2 个 NADPH。','氧化支路到此结束，每个 G6P 共产 2 NADPH 和 1 CO₂，且不可逆。'),
+ mk('r5p','R5P','5-磷酸核糖','p',5,[2.5,3.5,6.5],'Ru5P 经 Rpi 异构得到，是核苷酸和 PRPP 的原料。X5P 由 Rpe 差向异构得到，一并进入重排。','PRPP 由 R5P 活化而来。色氨酸专属支路的第二步（TrpD）要消耗 1 个 PRPP。'),
+ mk('e4p','E4P','4-磷酸赤藓糖','p',4,[0,0.5,5],'转酮酶（TktA/TktB）和转醛酶（Tal）把 C5、C7 糖来回重排得到。非氧化支路可逆，下游抽走多少就往回补多少。','莽草酸途径的两种起始原料之一。过表达 tktA 是提高 E4P 供给的经典手段。'),
+ mk('dahp','DAHP','3-脱氧-阿拉伯庚酮糖酸-7-磷酸','i',7,[-2.5,-1.8,2.8],'PEP（C3）加 E4P（C4）在 DAHP 合酶（AroG/F/H）催化下缩合，是进入莽草酸途径的第一步。','这一步受芳香族氨基酸反馈抑制，工程菌多用抗反馈突变体（如 AroG 的 fbr 变体）。'),
+ mk('chor','分支酸','分支酸 Chorismate','i',10,[1.5,1.5,-0.5],'莽草酸途径终点，也是 Phe、Tyr、Trp 三条路的分叉点。一个分支酸共需 2 个 PEP 和 1 个 E4P。','往 Trp 走由 TrpE 起头，以谷氨酰胺为氮源，与去往 Phe、Tyr 的酶竞争分支酸。'),
+ mk('trp','Trp','色氨酸 Tryptophan','i',11,[5,3.5,-2.5],'由 TrpE、D、C、B、A 催化的 5 个酶步骤完成，同时消耗谷氨酰胺、PRPP 和丝氨酸。受 TrpE 反馈抑制和 trp 操纵子阻遏。','色氨酸合成同时要 Gln（来自 TCA 的 α-KG）、PRPP（来自 PPP 的 R5P）和 Ser（来自糖酵解的 3-磷酸甘油酸），三条主干在这里交汇。'),
+ mk('indole','吲哚','吲哚 Indole','i',8,[8,5,-3],'TnaA（色氨酸酶）把 Trp 切成吲哚、丙酮酸和 NH₃。吲哚对细胞有毒，浓度高时会抑制生长。','游离吲哚是有毒中间体。产出速度要和下一步氧化酶匹配，否则会拖垮菌体。'),
+ mk('indoxyl','吲哚酚','吲哚酚 Indoxyl','i',8,[10.5,6.3,-3.5],'单加氧酶（如 FMO、P450 BM3 突变体）以 NAD(P)H 和 O₂ 把吲哚羟基化。','每个靛蓝需要 2 个吲哚酚，也就是至少 2 个 NAD(P)H。这是三条主干里还原力需求最直接的一步。'),
+ mk('indigo','靛蓝','靛蓝 Indigo','i',16,[13,8,-4],'两个吲哚酚被氧气氧化并二聚成靛蓝（C₁₆H₁₀N₂O₂），这一步不需要酶。','靛蓝不溶于水，在胞内形成蓝色沉淀。副产物靛玉红偏红，会拉偏色相，是质检要盯的指标之一。染色时需先还原成可溶的隐色体，上纤维后再氧化显色。')
+];
+const byId={}; N.forEach(n=>{byId[n.id]=n;});
+['cit','icit','akg','succoa','suc','fum','mal','oaa'].forEach((id,i)=>{
+  const a=(150-45*i)*Math.PI/180, tl=25*Math.PI/180;
+  byId[id].p=[7+3.2*Math.cos(a), -4+3.2*Math.sin(a)*Math.cos(tl), -1+3.2*Math.sin(a)*Math.sin(tl)];
+});
+const K=(k,d)=>[k,d];
+const E=[
+ ['glc','g6p','g','PTS（耗 PEP）',[]],
+ ['g6p','f6p','g','Pgi',[]],
+ ['f6p','fbp','g','PfkA',[K('ATP',-1)]],
+ ['fbp','gap','g','Fba（切成两个 C3）',[]],
+ ['gap','pep','g','GapA 至 Eno，4 步',[K('NADH',1),K('ATP',1)]],
+ ['pep','pyr','g','Pyk',[K('ATP',1)]],
+ ['pyr','accoa','t','丙酮酸脱氢酶复合体',[K('NADH',1),K('CO2',1)]],
+ ['accoa','cit','t','GltA 缩合',[]],
+ ['cit','icit','t','AcnAB',[]],
+ ['icit','akg','t','Icd',[K('NADPH',1),K('CO2',1)]],
+ ['akg','succoa','t','SucAB-Lpd',[K('NADH',1),K('CO2',1)]],
+ ['succoa','suc','t','SucCD',[K('ATP',1)]],
+ ['suc','fum','t','Sdh',[K('FADH2',1)]],
+ ['fum','mal','t','FumA/B/C',[]],
+ ['mal','oaa','t','Mdh',[K('NADH',1)]],
+ ['oaa','cit','t','GltA 缩合',[]],
+ ['g6p','p6g','p','Zwf + Pgl',[K('NADPH',1)]],
+ ['p6g','ru5p','p','Gnd',[K('NADPH',1),K('CO2',1)]],
+ ['ru5p','r5p','p','Rpi / Rpe',[]],
+ ['r5p','e4p','p','Tkt / Tal，多步重排',[]],
+ ['e4p','f6p','p','回流 F6P（连同 GAP）',[]],
+ ['pep','dahp','i','AroG / AroF / AroH',[]],
+ ['e4p','dahp','i','AroG / AroF / AroH',[]],
+ ['dahp','chor','i','AroB 至 AroC，6 步',[K('ATP',-1),K('NADPH',-1)]],
+ ['chor','trp','i','TrpE / D / C / A / B',[]],
+ ['r5p','trp','i','经 PRPP（TrpD 一步）',[]],
+ ['trp','indole','i','TnaA（另放出丙酮酸、NH₃）',[]],
+ ['indole','indoxyl','i','单加氧酶',[K('NADPH',-1)]],
+ ['indoxyl','indigo','i','自发氧化二聚',[]]
+].map(r=>({f:r[0],t:r[1],pw:r[2],l:r[3],k:r[4],thin:r[0]==='r5p'&&r[1]==='trp'}));
+const GLYE=['g6p>f6p','f6p>fbp','fbp>gap','gap>pep','pep>pyr'];
+E.forEach(e=>{e.grp=e.pw==='p'?'P':(GLYE.indexOf(e.f+'>'+e.t)>=0?'G':'');});
+
+const PW={
+ a:{name:'全部',one:'葡萄糖在 G6P 处分流：一路走糖酵解，一路走磷酸戊糖途径（PPP）。PPP 的非氧化支路把碳送回糖酵解，并产出 E4P。PEP 与 E4P 在 DAHP 合酶处汇合，通往色氨酸和靛蓝。丙酮酸则经乙酰 CoA 进入 TCA。',
+  facts:[['数据类比','一张有向图：节点是代谢物，边是酶催化的反应。稳态下每个节点进出平衡，这就是 FBA 的前提。'],['读图方法','先看三个路口：G6P 决定电力与碳的分配，PEP 决定靛蓝与摄糖谁先用，乙酰 CoA 决定进多少碳去烧。']],
+  nodes:['g6p','pep','dahp','accoa']},
+ g:{name:'糖酵解',en:'Glycolysis',one:'把 1 个葡萄糖（C6）切成 2 个丙酮酸（C3），在胞质里完成，不需要氧。',
+  facts:[['教科书净账','每个葡萄糖净得 2 ATP 和 2 NADH。E. coli 用 PTS 摄糖，以 PEP 代替 ATP 磷酸化，账面略有出入。'],['数据类比','先预付后回收的流水线：前半段投入 2 个 ATP，后半段收回 4 个。'],['与靛蓝的关系','终点 PEP 是莽草酸途径的入口，同时被 PTS 占用。']],
+  nodes:['glc','g6p','f6p','fbp','gap','pep','pyr']},
+ p:{name:'磷酸戊糖途径',en:'PPP',one:'做两件事：氧化支路造 NADPH，非氧化支路重排碳骨架，产出核糖（R5P）和赤藓糖（E4P）。',
+  facts:[['氧化支路','每个 G6P 产 2 NADPH 和 1 CO₂，不可逆。'],['非氧化支路','转酮酶和转醛酶可逆重排。净效果：3 个 C5 变成 2 个 F6P 和 1 个 GAP，碳守恒。'],['数据类比','旁路服务：既供电（NADPH），也供原料（R5P、E4P）。'],['与靛蓝的关系','NADPH 喂单加氧酶；E4P 进莽草酸途径；R5P 经 PRPP 进色氨酸合成。']],
+  nodes:['g6p','p6g','ru5p','r5p','e4p','f6p']},
+ t:{name:'TCA 循环',en:'Citric acid cycle',one:'把乙酰 CoA 的 2 个碳氧化成 2 个 CO₂，主要产物是还原力，同时向外提供氨基酸前体。',
+  facts:[['每转一圈','2 CO₂、1 ATP、1 FADH₂、2 NADH 和 1 NADPH（E. coli，Icd 用 NADP⁺）。教科书写作 3 NADH。'],['数据类比','带缓冲的循环池：入口加乙酰 CoA，中间体被抽走合成氨基酸后，要靠回补反应补满。'],['与靛蓝的关系','与目标产物争碳。α-KG 经谷氨酸、谷氨酰胺为色氨酸供氮。']],
+  nodes:['accoa','cit','icit','akg','succoa','suc','fum','mal','oaa']},
+ i:{name:'靛蓝前体路线',en:'Shikimate to indigo',one:'PEP 加 E4P，经莽草酸途径到色氨酸，再到吲哚、靛蓝。它不属于中心代谢，是接在三条主干末端的目标产物支线。',
+  facts:[['碳账','每个分支酸要 2 个 PEP 和 1 个 E4P。每个靛蓝含两个吲哚单元，需要 2 个 Trp，因此至少 4 个 PEP 和 2 个 E4P。'],['还原力','分支酸之前的 AroE 一步耗 1 NADPH，吲哚氧化再耗 NAD(P)H。'],['常见瓶颈','PEP 与 E4P 不足、DAHP 合酶被反馈抑制、吲哚毒性、氧化酶活性不足。']],
+  nodes:['pep','e4p','r5p','dahp','chor','trp','indole','indoxyl','indigo']}
+};
+/* ---------- UI ---------- */
+(function(){
+'use strict';
+const $=id=>document.getElementById(id);
+const T=window.THREE;
+const reduce=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const state={tab:'a',sel:'pep',cof:true,rot:!reduce,ppp:20};
+const KN={ATP:'ATP',NADH:'NADH',NADPH:'NADPH',FADH2:'FADH₂',CO2:'CO₂'};
+const KV={ATP:'--k-atp',NADH:'--k-nadh',NADPH:'--k-nadph',FADH2:'--k-fadh',CO2:'--k-co2'};
+const PWV={g:'--c-g',p:'--c-p',t:'--c-t',i:'--c-i'};
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+
+N.forEach(n=>{n.v=T?new T.Vector3(n.p[0],n.p[1],n.p[2]):null;});
+/* centre the network on its centroid */
+(function(){
+  let cx=0,cy=0,cz=0; N.forEach(n=>{cx+=n.p[0];cy+=n.p[1];cz+=n.p[2];});
+  cx/=N.length;cy/=N.length;cz/=N.length;
+  N.forEach(n=>{n.p=[n.p[0]-cx,n.p[1]-cy,n.p[2]-cz]; if(n.v)n.v.set(n.p[0],n.p[1],n.p[2]);});
+})();
+
+function chip(c){
+  const k=c[0],d=c[1];
+  const txt=k==='CO2'?'CO₂ 放出':KN[k]+' '+(d>0?'+':'−')+Math.abs(d);
+  return '<span class="chip'+(d<0?' neg':'')+'" style="--kc:var('+KV[k]+')"><i></i>'+txt+'</span>';
+}
+function flowItems(id){
+  let h='';
+  E.forEach(e=>{
+    if(e.t!==id&&e.f!==id)return;
+    const incoming=e.t===id, o=byId[incoming?e.f:e.t];
+    h+='<li><span class="ar">'+(incoming?'←':'→')+'</span><button type="button" class="lnk" data-go="'+o.id+'">'+o.s+'</button><span class="en">'+e.l+'</span>'+(e.k.length?'<span class="chips">'+e.k.map(chip).join('')+'</span>':'')+'</li>';
+  });
+  return h;
+}
+function renderNode(){
+  const n=byId[state.sel];
+  $('node-card').innerHTML=
+    '<div class="nc-head"><span class="dot" style="--dc:var('+PWV[n.pw]+')"></span><h2>'+n.n+'</h2><span class="tag">C'+n.c+'</span></div>'+
+    '<p>'+n.d+'</p><ul class="flow">'+flowItems(n.id)+'</ul>'+
+    (n.y?'<p class="dye"><b>染料视角</b>'+n.y+'</p>':'');
+}
+function renderPw(){
+  const P=PW[state.tab], t=state.tab;
+  let h='<h2>'+(t==='a'?'':'<span class="dot" style="--dc:var('+PWV[t]+')"></span>')+P.name+(P.en?'<small>'+P.en+'</small>':'')+'</h2><p>'+P.one+'</p><dl>'+
+    P.facts.map(f=>'<dt>'+f[0]+'</dt><dd>'+f[1]+'</dd>').join('')+'</dl>'+
+    '<div class="jump"><span>'+(t==='a'?'关键路口':'节点')+'</span>'+
+    P.nodes.map(id=>'<button type="button" class="lnk pill" data-go="'+id+'">'+byId[id].s+'</button>').join('')+'</div>';
+  $('pw-card').innerHTML=h;
+}
+function renderFlux(){
+  const x=state.ppp;
+  $('r-x').textContent=x; $('r-nadph').textContent=2*x; $('r-co2').textContent=x; $('r-gly').textContent=100-x;
+  let m;
+  if(x<10)m='氧化支路几乎不走，NADPH 来源很窄，单加氧酶和莽草酸途径里的还原步骤容易缺电子。';
+  else if(x<=35)m='中间档：NADPH 有一定供给，多数碳仍走糖酵解到达 PEP。';
+  else m='NADPH 很充足，但每个进入氧化支路的 G6P 都以 CO₂ 形式丢掉 1 个碳，碳收率下降。';
+  $('flux-note').textContent=m;
+}
+function activeSet(){
+  const A=new Set();
+  if(state.tab==='a'){N.forEach(n=>A.add(n.id));return A;}
+  PW[state.tab].nodes.forEach(id=>A.add(id));
+  E.forEach(e=>{if(e.pw===state.tab){A.add(e.f);A.add(e.t);}});
+  return A;
+}
+let active=activeSet();
+function setTab(t){
+  state.tab=t; active=activeSet();
+  document.querySelectorAll('.tab').forEach(b=>b.setAttribute('aria-selected',b.dataset.tab===t?'true':'false'));
+  renderPw();
+}
+function select(id){
+  if(!byId[id])return;
+  state.sel=id; renderNode();
+  N.forEach(n=>{if(n.lb)n.lb.classList.toggle('sel',n.id===id);});
+}
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>setTab(b.dataset.tab)));
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-go]'); if(b)select(b.dataset.go);
+});
+$('ppp').addEventListener('input',e=>{state.ppp=+e.target.value;renderFlux();});
+$('b-cof').addEventListener('click',e=>{state.cof=!state.cof;e.currentTarget.setAttribute('aria-pressed',String(state.cof));});
+$('b-rot').addEventListener('click',e=>{state.rot=!state.rot;e.currentTarget.setAttribute('aria-pressed',String(state.rot));});
+if(reduce){$('b-rot').setAttribute('aria-pressed','false');}
+renderNode(); renderPw(); renderFlux();
+
+/* ---------- 3D ---------- */
+let renderer=null;
+if(T){try{renderer=new T.WebGLRenderer({canvas:$('cv'),antialias:true,alpha:true});}catch(err){renderer=null;}}
+if(!renderer){$('nogl').hidden=false;return;}
+
+const stage=$('stage'), labelsEl=$('labels');
+renderer.setPixelRatio(Math.min(window.devicePixelRatio||1,2));
+renderer.setClearColor(0x000000,0);
+const scene=new T.Scene();
+const cam=new T.PerspectiveCamera(40,1,0.1,300);
+scene.add(new T.AmbientLight(0xffffff,0.85));
+const dl=new T.DirectionalLight(0xffffff,0.55); dl.position.set(6,10,8); scene.add(dl);
+
+const CC={g:new T.Color(),p:new T.Color(),t:new T.Color(),i:new T.Color()};
+const PC={g:new T.Color(),p:new T.Color(),t:new T.Color(),i:new T.Color()};
+const KC={ATP:new T.Color(),NADH:new T.Color(),NADPH:new T.Color(),FADH2:new T.Color(),CO2:new T.Color()};
+const bgC=new T.Color(), fgC=new T.Color();
+
+const nodeGeo=new T.SphereGeometry(1,24,18), tubeGeo=new T.CylinderGeometry(1,1,1,8,1,true), coneGeo=new T.ConeGeometry(1,1,10), boxGeo=new T.BoxGeometry(1,1,1);
+const Y=new T.Vector3(0,1,0);
+let BR=0;
+
+N.forEach(n=>{
+  n.r=0.3+0.035*n.c; n.a=1;
+  n.mat=new T.MeshLambertMaterial({transparent:true});
+  n.mesh=new T.Mesh(nodeGeo,n.mat); n.mesh.position.copy(n.v); n.mesh.scale.setScalar(n.r); scene.add(n.mesh);
+  const d=document.createElement('div'); d.className='lb'+(n.id===state.sel?' sel':''); d.textContent=n.s; labelsEl.appendChild(d); n.lb=d;
+  BR=Math.max(BR,n.v.length()+n.r);
+});
+
+const cofGroup=new T.Group(); scene.add(cofGroup);
+E.forEach(e=>{
+  const a=byId[e.f], b=byId[e.t];
+  e.a=1; e.fs=1; e.A=a; e.B=b;
+  const dir=b.v.clone().sub(a.v); e.len=dir.length(); e.dir=dir.clone().normalize();
+  e.base=e.thin?0.03:0.07;
+  e.mat=new T.MeshBasicMaterial({transparent:true,depthWrite:false});
+  e.tube=new T.Mesh(tubeGeo,e.mat);
+  e.tube.position.copy(a.v).add(b.v).multiplyScalar(0.5);
+  e.tube.quaternion.setFromUnitVectors(Y,e.dir);
+  e.tube.scale.set(e.base,e.len,e.base); scene.add(e.tube);
+  const s=e.thin?0.15:0.24;
+  e.cone=new T.Mesh(coneGeo,e.mat); e.cone.scale.set(s,s*2.6,s);
+  e.cone.position.copy(b.v).addScaledVector(e.dir,-(b.r+s*1.3+0.05));
+  e.cone.quaternion.copy(e.tube.quaternion); scene.add(e.cone);
+  const side=new T.Vector3().crossVectors(e.dir,Y); if(side.lengthSq()<1e-4)side.set(1,0,0); side.normalize();
+  e.beads=[];
+  e.k.forEach((c,i)=>{
+    const m=new T.MeshBasicMaterial({transparent:true});
+    const mesh=new T.Mesh(c[1]<0?boxGeo:nodeGeo,m);
+    mesh.scale.setScalar(c[0]==='CO2'?0.12:0.17);
+    const t=clamp(0.34+0.16*i,0.3,0.7), sg=(c[0]==='CO2'?-1:(i%2===0?1:-1));
+    mesh.position.copy(a.v).addScaledVector(e.dir,e.len*t).addScaledVector(side,0.5*sg);
+    cofGroup.add(mesh); e.beads.push({m:m,k:c[0]});
+  });
+});
+
+/* flow particles */
+const circ=(function(){
+  const c=document.createElement('canvas'); c.width=c.height=64; const g=c.getContext('2d');
+  const gr=g.createRadialGradient(32,32,2,32,32,30);
+  gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(0.55,'rgba(255,255,255,1)'); gr.addColorStop(1,'rgba(255,255,255,0)');
+  g.fillStyle=gr; g.beginPath(); g.arc(32,32,30,0,7); g.fill();
+  return new T.CanvasTexture(c);
+})();
+let np=0; E.forEach(e=>{e.np=Math.max(2,Math.round(e.len/2.2)); e.pi=np; np+=e.np;});
+const pPos=new Float32Array(np*3), pCol=new Float32Array(np*3);
+const pg=new T.BufferGeometry();
+pg.setAttribute('position',new T.BufferAttribute(pPos,3)); pg.setAttribute('color',new T.BufferAttribute(pCol,3));
+const pts=new T.Points(pg,new T.PointsMaterial({size:0.6,map:circ,vertexColors:true,transparent:true,depthWrite:false,alphaTest:0.02}));
+pts.frustumCulled=false; scene.add(pts);
+
+/* selection ring */
+const ring=new T.Mesh(new T.RingGeometry(1.35,1.55,48),new T.MeshBasicMaterial({transparent:true,side:T.DoubleSide,depthTest:false}));
+ring.renderOrder=5; scene.add(ring);
+
+/* theme */
+function applyTheme(){
+  const cs=getComputedStyle(document.documentElement), tk=n=>cs.getPropertyValue(n).trim();
+  bgC.set(tk('--stage')); fgC.set(tk('--fg'));
+  ['g','p','t','i'].forEach(k=>{CC[k].set(tk('--c-'+k)); PC[k].copy(CC[k]).lerp(fgC,0.4);});
+  Object.keys(KC).forEach(k=>KC[k].set(tk(KV[k])));
+  N.forEach(n=>{n.mat.color.copy(CC[n.pw]); n.mat.emissive.copy(CC[n.pw]).multiplyScalar(0.3);});
+  E.forEach(e=>{e.mat.color.copy(CC[e.pw]); e.beads.forEach(b=>b.m.color.copy(KC[b.k]));});
+  ring.material.color.copy(fgC);
+}
+applyTheme();
+new MutationObserver(applyTheme).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change',applyTheme);
+
+/* camera */
+const cam3={th:0.55,ph:1.2,zoom:1,fit:40};
+function fit(){
+  const w=stage.clientWidth||600, h=stage.clientHeight||400;
+  renderer.setSize(w,h,false); cam.aspect=w/h; cam.updateProjectionMatrix();
+  cam3.fit=(BR*0.82)/(Math.tan(cam.fov*Math.PI/360)*Math.min(1,cam.aspect));
+}
+fit(); new ResizeObserver(fit).observe(stage);
+
+/* interaction */
+const cv=$('cv'), ptrs=new Map(); let moved=0, lastInt=0;
+cv.addEventListener('pointerdown',e=>{
+  cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  moved=0; lastInt=performance.now(); cv.style.cursor='grabbing';
+});
+cv.addEventListener('pointermove',e=>{
+  const p=ptrs.get(e.pointerId);
+  if(!p){const hit=pickAt(e.clientX,e.clientY); cv.style.cursor=hit?'pointer':'grab'; return;}
+  lastInt=performance.now();
+  if(ptrs.size===2){
+    const o=Array.from(ptrs.values()), d0=Math.hypot(o[0].x-o[1].x,o[0].y-o[1].y);
+    p.x=e.clientX; p.y=e.clientY;
+    const d1=Math.hypot(o[0].x-o[1].x,o[0].y-o[1].y);
+    if(d1>0)cam3.zoom=clamp(cam3.zoom*d0/d1,0.45,1.5);
+    moved+=10; return;
+  }
+  const dx=e.clientX-p.x, dy=e.clientY-p.y;
+  cam3.th-=dx*0.006; cam3.ph=clamp(cam3.ph-dy*0.006,0.3,Math.PI-0.3);
+  moved+=Math.abs(dx)+Math.abs(dy); p.x=e.clientX; p.y=e.clientY;
+});
+function endPtr(e){
+  if(!ptrs.has(e.pointerId))return;
+  ptrs.delete(e.pointerId); cv.style.cursor='grab';
+  if(ptrs.size===0&&moved<6&&e.type==='pointerup'){const id=pickAt(e.clientX,e.clientY); if(id)select(id);}
+}
+cv.addEventListener('pointerup',endPtr); cv.addEventListener('pointercancel',endPtr);
+cv.addEventListener('wheel',e=>{e.preventDefault();cam3.zoom=clamp(cam3.zoom*Math.exp(e.deltaY*0.0012),0.45,1.5);lastInt=performance.now();},{passive:false});
+
+function pickAt(cx,cy){
+  const r=cv.getBoundingClientRect(), x=cx-r.left, y=cy-r.top;
+  let best=null, bd=1e9;
+  N.forEach(n=>{
+    if(n.sx===undefined||n.a<0.4)return;
+    const d=Math.hypot(n.sx-x,n.sy-y), lim=Math.max(22,n.sr+8);
+    if(d<lim&&d<bd){bd=d;best=n.id;}
+  });
+  return best;
+}
+
+/* frame loop */
+const v3=new T.Vector3(), tmp=new T.Color();
+let last=performance.now(), time=0;
+function frame(now){
+  const dt=Math.min(0.05,(now-last)/1000); last=now;
+  if(!reduce)time+=dt;
+  if(state.rot&&ptrs.size===0&&now-lastInt>1800)cam3.th+=dt*0.1;
+  const kk=1-Math.exp(-dt*9);
+
+  const d=cam3.fit*cam3.zoom, sp=Math.sin(cam3.ph);
+  cam.position.set(d*sp*Math.sin(cam3.th),d*Math.cos(cam3.ph),d*sp*Math.cos(cam3.th));
+  cam.lookAt(0,0,0); cam.updateMatrixWorld();
+
+  const x=state.ppp, fP=0.35+2.4*x/100, fG=0.35+1.5*(100-x)/100;
+  const W=stage.clientWidth, H=stage.clientHeight, fpx=H/2/Math.tan(cam.fov*Math.PI/360);
+
+  N.forEach(n=>{
+    n.a+=((active.has(n.id)?1:0.13)-n.a)*kk;
+    n.mat.opacity=n.a;
+    v3.copy(n.v).project(cam);
+    n.sx=(v3.x*0.5+0.5)*W; n.sy=(-v3.y*0.5+0.5)*H;
+    const dist=cam.position.distanceTo(n.v); n.sr=n.r*fpx/dist;
+    const depth=clamp(1-(dist-(d-BR))/(2*BR),0,1);
+    n.lb.style.opacity=((0.45+0.55*depth)*n.a).toFixed(3);
+    n.lb.style.transform='translate('+n.sx.toFixed(1)+'px,'+(n.sy-n.sr-4).toFixed(1)+'px) translate(-50%,-100%)';
+  });
+
+  E.forEach(e=>{
+    const on=state.tab==='a'||e.pw===state.tab;
+    e.a+=((on?1:0.1)-e.a)*kk;
+    const ft=e.grp==='P'?fP:(e.grp==='G'?fG:1);
+    e.fs+=(ft-e.fs)*kk;
+    const rad=e.base*e.fs;
+    e.tube.scale.set(rad,e.len,rad);
+    e.mat.opacity=(e.thin?0.35:0.5)*e.a;
+    e.beads.forEach(b=>{b.m.opacity=e.a;});
+    tmp.copy(PC[e.pw]).lerp(bgC,1-e.a);
+    const s0=e.A.r, s1=e.len-e.B.r, spd=1.4*e.fs/e.len;
+    for(let k=0;k<e.np;k++){
+      const t=((k/e.np)+time*spd)%1, pos=s0+(s1-s0)*t, i=(e.pi+k)*3;
+      pPos[i]=e.A.v.x+e.dir.x*pos; pPos[i+1]=e.A.v.y+e.dir.y*pos; pPos[i+2]=e.A.v.z+e.dir.z*pos;
+      pCol[i]=tmp.r; pCol[i+1]=tmp.g; pCol[i+2]=tmp.b;
+    }
+  });
+  pg.attributes.position.needsUpdate=true; pg.attributes.color.needsUpdate=true;
+  cofGroup.visible=state.cof;
+
+  const sel=byId[state.sel];
+  ring.position.copy(sel.v); ring.scale.setScalar(sel.r); ring.quaternion.copy(cam.quaternion);
+  ring.material.opacity=sel.a;
+
+  renderer.render(scene,cam);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
